@@ -47,8 +47,12 @@ ignoreIPs = args['--ignoreIPs']
 ignoreUsers = args['--ignoreUsers']
 countryWhitelist = args['--countryWhitelist']
 abuseIPDBKey = args['--abuseIPDB']
-threshold = int(args['<THRESHOLD>'])
+threshold = args['<THRESHOLD>']
 out = args['--out']
+
+if threshold != '':
+    threshold = int(threshold)
+    
 df = pd.read_csv(logFilePath)
 
 dangerousCountries = ['KR','KP','NK','CN','JP','RU']
