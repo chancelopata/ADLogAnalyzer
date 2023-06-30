@@ -36,7 +36,6 @@ def checkAbuseIPDB(IP: str, apiKey: str) -> dict:
 
 # Parse arguments from command
 args = docopt(__doc__)
-print(args)
 
 if args["--version"]:
     print("ADLogAnalyzer " + VERSION)
@@ -52,7 +51,7 @@ out = args['--out']
 
 if threshold != '':
     threshold = int(threshold)
-    
+
 df = pd.read_csv(logFilePath)
 
 dangerousCountries = ['KR','KP','NK','CN','JP','RU']
