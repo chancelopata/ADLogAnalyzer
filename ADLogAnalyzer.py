@@ -15,7 +15,6 @@ Options:
 
 from docopt import docopt
 import pandas as pd
-import os
 from xlsxwriter import Workbook
 import requests
 
@@ -86,6 +85,7 @@ susFailedSignIns = df[['User','IP','Status']]
 
 # Get a list of users with failed sign ins and each IP they used.
 susFailedSignIns = susFailedSignIns[susFailedSignIns.Status == 'Failure']
+susFailedSignIns.rename({'Status':'Failures'})
 
 if abuseIPDBKey is not None:
     susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count().reset_index()
