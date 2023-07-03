@@ -49,7 +49,7 @@ abuseIPDBKey = args['--abuseIPDB']
 threshold = args['<THRESHOLD>']
 out = args['--out']
 
-if threshold != '':
+if threshold:
     threshold = int(threshold)
 
 df = pd.read_csv(logFilePath)
