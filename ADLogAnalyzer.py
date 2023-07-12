@@ -29,8 +29,7 @@ def checkAbuseIPDB(IP: str, apiKey: str) -> dict:
         headers={'Key' : apiKey, 'Accept': 'application/json'}
     )
     r = r.json()['data']
-    r = r['abuseConfidenceScore'],r['isp'],r['usageType']
-    print(r)
+    r = r['abuseConfidenceScore'],r['isp'],r['usageType'],r['countryCode']
     return r
 
 # Parse arguments from command
@@ -87,12 +86,13 @@ susFailedSignIns = df[['User','IP','Status']]
 susFailedSignIns = susFailedSignIns[susFailedSignIns.Status == 'Failure']
 susFailedSignIns.rename({'Status':'Failures'})
 
+# AbuseIPDB API calls
 if abuseIPDBKey is not None:
     susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count().reset_index()
-    susFailedSignIns['abuseConfidenceScore'], susFailedSignIns['isp'], susFailedSignIns['usageType'] = zip(*susFailedSignIns.apply(lambda x: ('','','') if x.Status < threshold else checkAbuseIPDB(x.IP,abuseIPDBKey),axis=1))
+    susFailedSignIns['abuseConfidenceScore'], susFailedSignIns['isp'], susFailedSignIns['usageType'], susFailedSignIns['countryCode'] = zip(*susFailedSignIns.apply(lambda x: ('','','','') if x.Status < threshold else checkAbuseIPDB(x.IP,abuseIPDBKey),axis=1))
     
     # This makes the excel file easier to read. All it does is get rid of redundant names. Might want to sacrifice it for speed.
-    susFailedSignIns = susFailedSignIns.groupby(['User','IP','isp','abuseConfidenceScore','usageType']).sum() 
+    susFailedSignIns = susFailedSignIns.groupby(['User','IP','countryCode','abuseConfidenceScore','isp','usageType']).sum() 
 else:
     susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count()
 
