@@ -109,9 +109,9 @@ if abuseIPDBKey is not None:
         for ip in UniqueIPs:
             APIResponses.append(checkAbuseIPDB(ip,abuseIPDBKey))
 
-        # this will store all the data eventually.
+        # Create empty df with collumn names for API data.
         abuseIP_df = pd.DataFrame([APIResponses[0]])
-        abuseIP_df.iloc[0:0]
+        abuseIP_df = abuseIP_df.iloc[0:0]
 
         for r in APIResponses:
             tmp_df = pd.DataFrame([r])
@@ -122,7 +122,6 @@ if abuseIPDBKey is not None:
         abuseIP_df = abuseIP_df.rename(columns={'ipAddress':'IP'})
         abuseDataToKeep = ['IP','abuseConfidenceScore','countryCode','countryName','usageType','isp','domain','isTor']
         abuseIP_df = abuseIP_df[abuseDataToKeep]
-        abuseIP_df = abuseIP_df.drop_duplicates()
         susFailedSignIns = susFailedSignIns.merge(abuseIP_df, on='IP', how='left')
 
 
