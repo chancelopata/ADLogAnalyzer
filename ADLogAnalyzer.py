@@ -17,19 +17,19 @@ from docopt import docopt
 import pandas as pd
 from xlsxwriter import Workbook
 import requests
+from threading import Thread
 
 pd.options.mode.chained_assignment = None
 
 VERSION = "1.0"
 
-# Performs API call for an IP against abuseipdb then returns the abuse confidence score, isp, and usage type.
+# Performs API call for an IP against abuseipdb then returns the 'data' portion of the json response.
 def checkAbuseIPDB(IP: str, apiKey: str) -> dict:
     r = requests.get(
         'https://api.abuseipdb.com/api/v2/check?ipAddress='+IP+'&maxAgeInDays=90&verbose',
         headers={'Key' : apiKey, 'Accept': 'application/json'}
     )
     r = r.json()['data']
-    r = r['abuseConfidenceScore'],r['isp'],r['usageType'],r['countryCode']
     return r
 
 # Parse arguments from command
@@ -51,7 +51,6 @@ if threshold:
     threshold = int(threshold)
 
 df = pd.read_csv(logFilePath)
-
 dangerousCountries = ['KR','KP','NK','CN','JP','RU']
 
 ####################################
@@ -80,19 +79,58 @@ df = df[dataToKeep]
 # Generate Interesting Data
 ############################
 dangerousCountrySignIns = pd.DataFrame
+IPsAboveThreshold = pd.DataFrame
 susFailedSignIns = df[['User','IP','Status']]
+
 
 # Get a list of users with failed sign ins and each IP they used.
 susFailedSignIns = susFailedSignIns[susFailedSignIns.Status == 'Failure']
-susFailedSignIns.rename({'Status':'Failures'})
+susFailedSignIns = susFailedSignIns.rename(columns={'Status':'Failures'})
 
+#####################
 # AbuseIPDB API calls
+#####################
 if abuseIPDBKey is not None:
     susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count().reset_index()
-    susFailedSignIns['abuseConfidenceScore'], susFailedSignIns['isp'], susFailedSignIns['usageType'], susFailedSignIns['countryCode'] = zip(*susFailedSignIns.apply(lambda x: ('','','','') if x.Status < threshold else checkAbuseIPDB(x.IP,abuseIPDBKey),axis=1))
+    IPsAboveThreshold = susFailedSignIns[susFailedSignIns['Failures'] >= threshold]
+    IPsAboveThreshold = IPsAboveThreshold['IP']
+
+    # Create df of unique IPs so we dont duplicate queries
+    IPsAboveThreshold = IPsAboveThreshold.drop_duplicates()
+    IPsAboveThreshold = IPsAboveThreshold.reset_index()
+
+    UniqueIPs = IPsAboveThreshold['IP'].to_list()
     
-    # This makes the excel file easier to read. All it does is get rid of redundant names. Might want to sacrifice it for speed.
-    susFailedSignIns = susFailedSignIns.groupby(['User','IP','countryCode','abuseConfidenceScore','isp','usageType']).sum() 
+    if UniqueIPs:
+        # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
+        APIResponses = list()
+
+
+        for ip in UniqueIPs:
+            APIResponses.append(checkAbuseIPDB(ip,abuseIPDBKey))
+
+        # this will store all the data eventually.
+        abuseIP_df = pd.DataFrame([APIResponses[0]])
+        abuseIP_df.iloc[0:0]
+
+        for r in APIResponses:
+            tmp_df = pd.DataFrame([r])
+            abuseIP_df = pd.concat([abuseIP_df, tmp_df])
+
+        #abuseIP_df['IP'], abuseIP_df['abuseScore'], abuseIP_df['isp'], abuseIP_df['usageType'], abuseIP_df['countryCode'], abuseIP_df['countryName'] = (r['ipAddress'], r['abuseConfidenceScore'], r['isp'], r['usageType'], r['countryCode'], r['countryName'])
+        #print(abuseIP_df)
+        abuseIP_df = abuseIP_df.rename(columns={'ipAddress':'IP'})
+        abuseDataToKeep = ['IP','abuseConfidenceScore','countryCode','countryName','usageType','isp','domain','isTor']
+        abuseIP_df = abuseIP_df[abuseDataToKeep]
+        abuseIP_df = abuseIP_df.drop_duplicates()
+        susFailedSignIns = susFailedSignIns.merge(abuseIP_df, on='IP', how='left')
+
+
+        
+        #susFailedSignIns['abuseConfidenceScore'], susFailedSignIns['isp'], susFailedSignIns['usageType'], susFailedSignIns['countryCode'] = zip(*susFailedSignIns.apply(lambda x: ('','','','') if x.Failures < threshold else checkAbuseIPDB(x.IP,abuseIPDBKey),axis=1))
+        
+        # This makes the excel file easier to read. All it does is get rid of redundant names. Might want to sacrifice it for speed.
+        #susFailedSignIns = susFailedSignIns.groupby(['User','IP','countryCode','abuseScore','isp','usageType']).sum() 
 else:
     susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count()
 
