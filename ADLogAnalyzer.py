@@ -98,11 +98,10 @@ if abuseIPDBKey is not None:
     # Create df of unique IPs so we dont duplicate queries
     IPsAboveThreshold = IPsAboveThreshold.drop_duplicates()
     IPsAboveThreshold = IPsAboveThreshold.reset_index()
-
     UniqueIPs = IPsAboveThreshold['IP'].to_list()
     
+    # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
     if UniqueIPs:
-        # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
         APIResponses = list()
 
 
@@ -117,16 +116,11 @@ if abuseIPDBKey is not None:
             tmp_df = pd.DataFrame([r])
             abuseIP_df = pd.concat([abuseIP_df, tmp_df])
 
-        #abuseIP_df['IP'], abuseIP_df['abuseScore'], abuseIP_df['isp'], abuseIP_df['usageType'], abuseIP_df['countryCode'], abuseIP_df['countryName'] = (r['ipAddress'], r['abuseConfidenceScore'], r['isp'], r['usageType'], r['countryCode'], r['countryName'])
-        #print(abuseIP_df)
         abuseIP_df = abuseIP_df.rename(columns={'ipAddress':'IP'})
         abuseDataToKeep = ['IP','abuseConfidenceScore','countryCode','countryName','usageType','isp','domain','isTor']
         abuseIP_df = abuseIP_df[abuseDataToKeep]
         susFailedSignIns = susFailedSignIns.merge(abuseIP_df, on='IP', how='left')
 
-
-        
-        #susFailedSignIns['abuseConfidenceScore'], susFailedSignIns['isp'], susFailedSignIns['usageType'], susFailedSignIns['countryCode'] = zip(*susFailedSignIns.apply(lambda x: ('','','','') if x.Failures < threshold else checkAbuseIPDB(x.IP,abuseIPDBKey),axis=1))
         
         # This makes the excel file easier to read. All it does is get rid of redundant names. Might want to sacrifice it for speed.
         #susFailedSignIns = susFailedSignIns.groupby(['User','IP','countryCode','abuseScore','isp','usageType']).sum() 
