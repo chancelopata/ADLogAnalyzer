@@ -1,6 +1,6 @@
 '''ADLogAnalyzer
 Usage:
-    ADLogAnalyzer.py <logFilePath> [--ignoreIPs=<IP>... --ignoreUsers=<USER>... --countryWhitelist=<COUNTRYCODE>... (--abuseIPDB=<KEY> <THRESHOLD>) --out=<PATH>]
+    ADLogAnalyzer.py <logFilePath> [--ignoreIPs=<IP>... --ignoreUsers=<USER>... --countryWhitelist=<COUNTRYCODE>... (--abuseIPDB=<KEY> <THRESHOLD>) (--abuseIPDBCache=<filePath>) --out=<PATH>]
     ADLogAnalyzer.py -h | --help
     ADLogAnalyzer.py --version
 
@@ -9,7 +9,8 @@ Options:
     --ignoreIP: Ignore these IP addresses.
     --ignoreUser: Ignore these users
     --countryWhitelist: Treat all other countries as dangerous. Accepts 2 letter code.
-    --abuseIPDB <KEY> <THRESHOLD>: Key used in abuseIPDB lookup and the minimum number of failed sign ins from an IP required to launch a API request to abuseIPDB.
+    --abuseIPDB <KEY> <THRESHOLD>: Key used in abuseIPDB lookup and threshhold is the minimum number of failed sign ins from an IP required to launch a API request to abuseIPDB.
+    --abuseIPDBCache <filePath>: Use a file to cache abuseipdb api responses. If it exists, the program will check all queries to be made against the cache to make sure it is not querying info it already has. Any new info will be saved to the file. A file is created if none exists.
     --out: Path for output.
 '''
 
@@ -18,6 +19,7 @@ import pandas as pd
 from xlsxwriter import Workbook
 import requests
 from threading import Thread
+from pathlib import Path
 
 pd.options.mode.chained_assignment = None
 
@@ -39,18 +41,37 @@ if args["--version"]:
     print("ADLogAnalyzer " + VERSION)
     quit()
 
-logFilePath = args['<logFilePath>']
+logFilePath = Path(args['<logFilePath>']) #TODO: use Pathlib with all file paths here.
 ignoreIPs = args['--ignoreIPs']
 ignoreUsers = args['--ignoreUsers']
 countryWhitelist = args['--countryWhitelist']
 abuseIPDBKey = args['--abuseIPDB']
-threshold = args['<THRESHOLD>']
+abuseIPDBCacheFile = args['--abuseIPDBCache']
 out = args['--out']
+threshold = args['<THRESHOLD>']
 
 if threshold:
     threshold = int(threshold)
 
-df = pd.read_csv(logFilePath)
+
+# Read in cache file if exists, if not then create a blank one.
+abuseIP_df = None
+if abuseIPDBCacheFile is not None:
+    abuseIPDBFile = Path(abuseIPDBCacheFile)
+    if abuseIPDBFile.is_file():
+        abuseIP_df = pd.read_csv(abuseIPDBCacheFile)
+    else:
+        Path(abuseIPDBCacheFile).touch()
+        abuseIP_df = pd.DataFrame()
+
+# Read in AAD logs. Abort if bad path.
+df = None
+if logFilePath.is_file():
+    df = pd.read_csv(logFilePath)
+else:
+    print('Fatal error - File does not exist at relative path: ' + logFilePath.name)
+    quit()
+
 dangerousCountries = ['KR','KP','NK','CN','JP','RU']
 
 ####################################
@@ -78,10 +99,9 @@ df = df[dataToKeep]
 ############################
 # Generate Interesting Data
 ############################
-dangerousCountrySignIns = pd.DataFrame
-IPsAboveThreshold = pd.DataFrame
+dangerousCountrySignIns = pd.DataFrame()
+IPsAboveThreshold = pd.DataFrame()
 susFailedSignIns = df[['User','IP','Status']]
-
 
 # Get a list of users with failed sign ins and each IP they used.
 susFailedSignIns = susFailedSignIns[susFailedSignIns.Status == 'Failure']
@@ -98,27 +118,40 @@ if abuseIPDBKey is not None:
     # Create df of unique IPs so we dont duplicate queries
     IPsAboveThreshold = IPsAboveThreshold.drop_duplicates()
     IPsAboveThreshold = IPsAboveThreshold.reset_index()
-    UniqueIPs = IPsAboveThreshold['IP'].to_list()
+    UniqueIPs = IPsAboveThreshold['IP']
     
-    # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
-    if UniqueIPs:
+    if len(UniqueIPs) != 0:
         APIResponses = list()
+    
+        # Don't repeat requests for info we already have. Create empty abuseIP_df if there was not one to begin with.
+        if not abuseIP_df.empty:
+            UniqueIPs = UniqueIPs[~UniqueIPs.isin(abuseIP_df['IP'])]
 
-
+        # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
         for ip in UniqueIPs:
             APIResponses.append(checkAbuseIPDB(ip,abuseIPDBKey))
 
-        # Create empty df with collumn names for API data.
-        abuseIP_df = pd.DataFrame([APIResponses[0]])
-        abuseIP_df = abuseIP_df.iloc[0:0]
+        if  abuseIP_df.empty:
+            abuseIP_df = pd.DataFrame([APIResponses[0]])
+            abuseIP_df = abuseIP_df.iloc[0:0]
+            abuseIP_df = abuseIP_df.rename(columns={'ipAddress':'IP'})
 
-        for r in APIResponses:
-            tmp_df = pd.DataFrame([r])
-            abuseIP_df = pd.concat([abuseIP_df, tmp_df])
+        # Make df from new api responses
+        tmp_df = pd.DataFrame(APIResponses)
 
-        abuseIP_df = abuseIP_df.rename(columns={'ipAddress':'IP'})
+        # Combine new responses with old ones if they exist.
+        abuseIP_df = pd.concat([abuseIP_df,tmp_df])
+        abuseIP_df['IP'] = abuseIP_df['IP'].fillna('')
+            # Combine two ip collumns if needed
+        if 'ipAddress' in abuseIP_df.columns:
+            abuseIP_df['ipAddress'] = abuseIP_df['ipAddress'].fillna('')
+            abuseIP_df['IP'] = abuseIP_df['IP']+abuseIP_df['ipAddress']
+
+        # Filter out what we dont want 
         abuseDataToKeep = ['IP','abuseConfidenceScore','countryCode','countryName','usageType','isp','domain','isTor']
         abuseIP_df = abuseIP_df[abuseDataToKeep]
+
+        # Join abuseipdb info with df of failed sign ins.
         susFailedSignIns = susFailedSignIns.merge(abuseIP_df, on='IP', how='left')
 
         
@@ -142,8 +175,14 @@ writer = pd.ExcelWriter
 if out:
     writer = pd.ExcelWriter(out, engine='xlsxwriter')
 else:   
-    writer = pd.ExcelWriter(logFilePath + '_analyzed.xlsx', engine='xlsxwriter')
+    writer = pd.ExcelWriter(logFilePath.name + '_analyzed.xlsx', engine='xlsxwriter')
 df.to_excel(writer, sheet_name='Filtered')
 dangerousCountrySignIns.to_excel(writer, sheet_name='DangerousCountry')
 susFailedSignIns.to_excel(writer, sheet_name='FailedSignIns')
 writer.close()
+
+#############################
+# Store API call info
+#############################
+if abuseIPDBFile is not None:
+    abuseIP_df.to_csv(abuseIPDBCacheFile.name)
