@@ -34,7 +34,7 @@ def checkAbuseIPDB(IP: str, apiKey: str) -> dict:
     r = r.json()['data']
     return r
 
-# Parse arguments from command
+# Parse arguments from command and format them for convenience if neccessary.
 args = docopt(__doc__)
 
 if args["--version"]:
@@ -46,7 +46,9 @@ ignoreIPs = args['--ignoreIPs']
 ignoreUsers = args['--ignoreUsers']
 countryWhitelist = args['--countryWhitelist']
 abuseIPDBKey = args['--abuseIPDB']
-abuseIPDBCacheFile = args['--abuseIPDBCache']
+cacheFile = args['--abuseIPDBCache']
+if cacheFile is not None:
+    cacheFile = Path(args['--abuseIPDBCache'])
 out = args['--out']
 threshold = args['<THRESHOLD>']
 
@@ -56,13 +58,14 @@ if threshold:
 
 # Read in cache file if exists, if not then create a blank one.
 abuseIP_df = None
-if abuseIPDBCacheFile is not None:
-    abuseIPDBFile = Path(abuseIPDBCacheFile)
-    if abuseIPDBFile.is_file():
-        abuseIP_df = pd.read_csv(abuseIPDBCacheFile)
+if cacheFile is not None:
+    if cacheFile.is_file():
+        abuseIP_df = pd.read_csv(cacheFile)
     else:
-        Path(abuseIPDBCacheFile).touch()
+        cacheFile.touch()
         abuseIP_df = pd.DataFrame()
+else:
+    abuseIP_df = pd.DataFrame()
 
 # Read in AAD logs. Abort if bad path.
 df = None
@@ -184,5 +187,5 @@ writer.close()
 #############################
 # Store API call info
 #############################
-if abuseIPDBFile is not None:
-    abuseIP_df.to_csv(abuseIPDBCacheFile.name)
+if cacheFile is not None:
+    abuseIP_df.to_csv(cacheFile.name)
