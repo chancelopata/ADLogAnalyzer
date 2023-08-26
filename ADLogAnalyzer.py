@@ -5,7 +5,7 @@ Usage:
     ADLogAnalyzer.py --version
 
 Options:
-    --logFilePath: Path to log file
+    --logFilePath: Path to log file. Must be in json or csv format.
     --ignoreIP: Ignore these IP addresses. Accepted as a single string seperated by commas.
     --ignoreUser: Ignore these users. Accepted as a single string seperated by commas.
     --countryWhitelist: Treat all other countries as dangerous. Accepts 2 letter code.
@@ -13,7 +13,7 @@ Options:
     --abuseIPDBCache <filePath>: Use a file to cache abuseipdb api responses. If it exists, the program will check all queries to be made against the cache to make sure it is not querying info it already has. Any new info will be saved to the file. A file is created if none exists.
     --maxAge <DAYS>: data in the cache file older than <DAYS> will be deleted and requeried to get fresh data.
     --out: Path for output.
-    --watchUsers: Get all successes for these users. Will watch users even if their IP or User is supposed to be ignored via --ignoreIP or --ignoreUsersAccepted as a single string seperated by commas.
+    --watchUsers: Get all successes for these users. Will watch users even if their IP or User is supposed to be ignored via --ignoreIP or --ignoreUsers. Accepted as a single string seperated by commas.
 '''
 
 from docopt import docopt
@@ -111,9 +111,14 @@ if __name__ == '__main__':
 
     # Read in AAD logs. Abort if bad path.
     if logFilePath.is_file():
-        df = pd.read_csv(logFilePath)
+            with open(logFilePath) as f:
+                if f.read(1) == '{':
+                    pd.read_json(logFilePath)
+                else:
+                    df = pd.read_csv(logFilePath)
+        
     else:
-        print('Fatal error - File does not exist at relative path: ' + logFilePath.name)
+        print('FATAL ERROR: log File not found at path: ' + logFilePath.name)
         quit()
 
     dangerousCountries = ['KR','KP','NK','CN','JP','RU']
@@ -183,8 +188,6 @@ if __name__ == '__main__':
             # Make API requests, get responses in list. Do this seperate from df because pandas is not thread safe.
             with ThreadPool(concurrent) as pool:
                 APIResponses = pool.starmap(checkAbuseIPDB, zip(UniqueIPs, repeat(abuseIPDBKey)), 1)
-                # for ip in UniqueIPs:
-                #     APIResponses.append(checkAbuseIPDB(ip,abuseIPDBKey))
 
             if  abuseIP_df.empty:
                 abuseIP_df = pd.DataFrame([APIResponses[0]])
@@ -208,11 +211,6 @@ if __name__ == '__main__':
 
             # Join abuseipdb info with df of failed sign ins.
             susFailedSignIns = susFailedSignIns.merge(abuseIP_df, on='IP', how='left')
-
-            
-            # This makes the excel file easier to read. All it does is get rid of redundant names. Might want to sacrifice it for speed.
-            #susFailedSignIns = susFailedSignIns.groupby(['User','IP','countryCode','abuseConfidenceScore','isp','usageType'])
-            #susFailedSignIns = pd.DataFrame(susFailedSignIns.groupby(['User','IP']).size())
     else:
         susFailedSignIns = susFailedSignIns.groupby(['User','IP']).count()
 
@@ -239,7 +237,6 @@ if __name__ == '__main__':
     if watchUsers:
         watchedSignIns.to_excel(writer, sheet_name='WatchedUsers')
     writer.close()
-
 
     #############################
     # Store API call info
